@@ -18,7 +18,7 @@ struct message {
   int16_t counter;
   int16_t temp;
   int16_t alt; 
-  int16_t pressure;
+  int32_t pressure;
 };
 
 message makeMessage(float temperature, float altitude,  float pressure) {
@@ -62,7 +62,6 @@ void loop() {
   float temperature = bmp.readTemperature();
   float pressure = bmp.readPressure() / 100.0;   //hPa
   float altitude =  44330.0 * (1.0 - pow(pressure / PRESSURE_SEA, 0.1903));
-
   unsigned long now = millis();
   if (now - lastRadio >= 1000) {
     digitalWrite(LED_BUILTIN, HIGH);
@@ -72,5 +71,8 @@ void loop() {
     Serial.println("Message sent!");
     digitalWrite(LED_BUILTIN, LOW);
     lastRadio = now;
+      Serial.print(temperature);
+  Serial.print(pressure);
+  Serial.println(altitude);
   }
 }
