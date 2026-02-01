@@ -1,89 +1,74 @@
 #include <SPI.h>
 #include <RH_RF95.h>
-#
-
-#define RFM95_CS   8
-#define RFM95_RST  4
-#define RFM95_INT  3
-
+#include <Adafruit_BMP280.h>
+#define RFM95_CS 8
+#define RFM95_INT 3
+#define RFM95_RST 4
 #define RF95_FREQ 433.1
 
+#define BMP_CS 19
 RH_RF95 rf95(RFM95_CS, RFM95_INT);
 
+Adafruit_BMP280 bmp();
+
+int16_t i = 0;
 struct message {
   uint8_t value;
   int16_t counter;
+  int16_t temp;
+  int16_t alt; 
+  int16_t pressure;
 };
 
-message recievedMessage;
+message makeMessage(float temperature, float altitude,  float pressure) {
+  message p{};
+  p.value = 100;
+  p.counter = i++;
+  p.temp = temperature * 100; //conv to int
+  p.alt = altitude * 100;
+  p.pressure = pressure * 100;
+  return p;
+};
+
+unsigned long lastRadio = 0;
 void setup() {
-  pinMode(LED_BUILTIN, OUTPUT);
+  // put your setup code here, to run once:
+  Serial.begin(9600);
   pinMode(RFM95_RST, OUTPUT);
-  digitalWrite(RFM95_RST, HIGH);
-
-  Serial.begin(115200);
-  while (!Serial) delay(1);
-  delay(100);
-
-  Serial.println("Feather LoRa RX Test!");
-
   digitalWrite(RFM95_RST, LOW);
   delay(10);
   digitalWrite(RFM95_RST, HIGH);
   delay(10);
-
-  while (!rf95.init()) {
-    Serial.println("LoRa radio init failed");
-    Serial.println("Uncomment '#define SERIAL_DEBUG' in RH_RF95.cpp for detailed debug info");
-    while (1);
+  if (!rf95.init()) {
+    Serial.println("rf doesnt init");
+    while (1)
+      ;
   }
-  Serial.println("LoRa radio init OK!");
-
   if (!rf95.setFrequency(RF95_FREQ)) {
-    Serial.println("setFrequency failed");
-    while (1);
+    Serial.println("Freq cannot be set");
+    while (1)
+      ;
   }
-  Serial.print("Set Freq to: "); Serial.println(RF95_FREQ);
-  rf95.setTxPower(23, false);
+  rf95.setTxPower(2, false);
+  if (!bmp.init(BMP_CS)) {
+    Serial.print(No BMP found);
+  }
 }
 
-void print_telemetry_packet_geiger(const uint8_t from, const uint8_t to, const int32_t rssi, message pkt) {
-  Serial.print("# ");
-  Serial.print(from, HEX);
-  Serial.print(';');
-  Serial.print(to, HEX);
-  Serial.print(';');
-  Serial.print(rssi);
-  Serial.print(';');
-
-  static char message[220];
-  const int packet = pkt.value;
-  const int counter = pkt.counter;
-
-  // Build ASCII line to print
-  sprintf(message, "%i;%i",
-  packet,
-  counter
-  );
-
-  // Send to USB / Serial port
-    Serial.println(message);
-}
 
 void loop() {
-  if (rf95.available()) {
-    
-    uint8_t buf[RH_RF95_MAX_MESSAGE_LEN];
-    uint8_t len = sizeof(buf);
+  float temperature = bmp.temperature();
+  float pressure = bmp.pressure / 100.0;   //hPa
+  float altitude =  44330.0 * (1.0 - pow(pressure / PRESSURE_SEA, 0.1903));
 
-    if (rf95.recv(buf, &len)) {
-      const uint8_t from = rf95.headerFrom();
-      const uint8_t to = rf95.headerTo();
-      const int32_t rssi = rf95.lastRssi();
-      memcpy(&recievedMessage, buf, sizeof(recievedMessage));
-      print_telemetry_packet_geiger(from, to, rssi, recievedMessage);
-    } else {
-      Serial.println("Receive failed");
-    }
+  unsigned long now = millis();
+  if (now - lastRadio >= 1000) {
+    digitalWrite(LED_BUILTIN, HIGH);
+    message pkt = makeMessage(temperature, altitude, pressure);
+    rf95.send((uint8_t*)&pkt, sizeof(pkt));
+    rf95.waitPacketSent();
+    Serial.println("Message sent!");
+    digitalWrite(LED_BUILTIN, LOW);
+    lastRadio = now;
   }
 }
