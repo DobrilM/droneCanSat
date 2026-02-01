@@ -9,7 +9,8 @@
 #define BMP_CS 19
 RH_RF95 rf95(RFM95_CS, RFM95_INT);
 
-Adafruit_BMP280 bmp();
+#define PRESSURE_SEA 1013.25
+Adafruit_BMP280 bmp(BMP_CS);
 
 int16_t i = 0;
 struct message {
@@ -50,15 +51,16 @@ void setup() {
       ;
   }
   rf95.setTxPower(2, false);
-  if (!bmp.init(BMP_CS)) {
-    Serial.print(No BMP found);
+    if (!bmp.begin()) {  
+    Serial.println("Could not find a valid BMP280 sensor, check wiring!");
+    while (1);
   }
 }
 
 
 void loop() {
-  float temperature = bmp.temperature();
-  float pressure = bmp.pressure / 100.0;   //hPa
+  float temperature = bmp.readTemperature();
+  float pressure = bmp.readPressure() / 100.0;   //hPa
   float altitude =  44330.0 * (1.0 - pow(pressure / PRESSURE_SEA, 0.1903));
 
   unsigned long now = millis();
