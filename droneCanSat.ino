@@ -17,8 +17,10 @@ constexpr uint8_t GPS_GET = 106;
 constexpr uint8_t GYRO_GET = 102;
 constexpr uint8_t NAV_STAT = 121;
 constexpr uint8_t BATT_GET = 130;
+constexpr uint8_t RC_CMD = 200;
 
-int16_t counter = 0;  
+int16_t counter = 0;
+
 struct message {
   uint8_t value;
   int16_t counter;
@@ -46,6 +48,7 @@ enum MSPType {
   PAYLOAD,
   CHECKSUM
 };
+
 MSPType type = IDLE;
 uint8_t dataSize = 0;
 uint8_t cmd = 0;
@@ -61,7 +64,10 @@ float accX, accY, accZ;
 
 uint16_t battVolt;
 unsigned long lastRadio = 0;
+unsigned long lastMSP;
 uint8_t navStat;
+
+uint16_t rcValues[16];
 
 void setup() {
   // put your setup code here, to run once:
@@ -87,6 +93,11 @@ void setup() {
   }
   pinMode(LED_BUILTIN, OUTPUT);
   digitalWrite(LED_BUILTIN, LOW);
+
+  for (int i = 0; i < 16; i++) {
+    rcValues[i] = 1500;
+  }
+  rcValues[2] = 1000; //throttle
 }
 
 message makeMessage(float temperature, float altitude, float pressure) {
@@ -216,6 +227,12 @@ void loop() {
   mspReadVoltage();
   mspReadMissionStatus();
   unsigned long now = millis();
+
+  if (now - lastMSP >= 20) {
+    mspCmd(RC_CMD, (uint8_t*)rcValues, 16);
+    lastMSP = now;
+  }
+
   if (now - lastRadio >= 1000) {
     digitalWrite(LED_BUILTIN, HIGH);
     message pkt = makeMessage(temperature, altitude, pressure);
