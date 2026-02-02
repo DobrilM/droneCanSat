@@ -15,6 +15,7 @@ Adafruit_BMP280 bmp(BMP_CS);
 
 constexpr uint8_t GPS_GET = 106;
 constexpr uint8_t GYRO_GET = 102;
+constexpr uint8_t BATT_GET = 130;
 
 int16_t counter = 0;  
 struct message {
@@ -28,6 +29,7 @@ struct message {
   uint32_t latitude;
   uint32_t longitude;
   int16_t altGPS;
+  uint16_t battVolt;
 };
 
 uint8_t payload[16];
@@ -55,6 +57,7 @@ int16_t altitudeGPS;
 
 float accX, accY, accZ;
 
+uint16_t battVolt;
 unsigned long lastRadio = 0;
 
 void setup() {
@@ -83,7 +86,7 @@ void setup() {
   digitalWrite(LED_BUILTIN, LOW);
 }
 
-message makeMessage(float temperature, float altitude,  float pressure, uint8_t fix, uint8_t numSat, uint32_t latitude, uint32_t longitude, int16_t altGPS) {
+message makeMessage(float temperature, float altitude,  float pressure, uint8_t fix, uint8_t numSat, uint32_t latitude, uint32_t longitude, int16_t altGPS, uint16_t battVolt) {
   message p{};
   p.value = 100;
   p.counter = counter++;
@@ -95,6 +98,7 @@ message makeMessage(float temperature, float altitude,  float pressure, uint8_t 
   p.latitude = latitude;
   p.longitude = longitude;
   p.altGPS = altGPS;
+  p.battVolt = battVolt;
   return p;
 };
 
@@ -132,6 +136,9 @@ void parsePacket(uint8_t cmd) {
     accX  = *(int16_t*)&payload[6]/1670.13;
     accY  = *(int16_t*)&payload[8]/1670.13;
     accZ  = *(int16_t*)&payload[10]/1670.13; 
+    break;
+    case BATT_GET:
+    battVolt = *(uint16_t*)&payload[0];
     break;
 
   }
@@ -178,16 +185,25 @@ void mspReadGyro() {
   }
 }
 
+void mspReadVoltage() {
+  mspCmd(BATT_GET, nullptr, 0);
+  delay(10);
+  while (Serial1.available()) {
+    parseMSP(Serial1.read());
+  }
+}
+
 void loop() {
   float temperature = bmp.readTemperature();
   float pressure = bmp.readPressure() / 100.0;   //hPa
   float altitude =  44330.0 * (1.0 - pow(pressure / PRESSURE_SEA, 0.1903));
   mspReadGPS();
   mspReadGyro();
+  mspReadVoltage();
   unsigned long now = millis();
   if (now - lastRadio >= 1000) {
     digitalWrite(LED_BUILTIN, HIGH);
-    message pkt = makeMessage(temperature, altitude, pressure, fix, numSat, latitude, longitude, altitudeGPS);
+    message pkt = makeMessage(temperature, altitude, pressure, fix, numSat, latitude, longitude, altitudeGPS, battVolt);
     rf95.send((uint8_t*)&pkt, sizeof(pkt));
     rf95.waitPacketSent();
     Serial.println("Message sent!");
@@ -204,5 +220,6 @@ void loop() {
     Serial.print(accX);
     Serial.print(accY);
     Serial.println(accZ);
+    Serial.println(battVolt);
   }
 }
