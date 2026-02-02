@@ -15,6 +15,7 @@ Adafruit_BMP280 bmp(BMP_CS);
 
 constexpr uint8_t GPS_GET = 106;
 constexpr uint8_t GYRO_GET = 102;
+constexpr uint8_t NAV_STAT = 121;
 constexpr uint8_t BATT_GET = 130;
 
 int16_t counter = 0;  
@@ -30,6 +31,7 @@ struct message {
   uint32_t longitude;
   int16_t altGPS;
   uint16_t battVolt;
+  uint8_t navStat;
 };
 
 uint8_t payload[16];
@@ -53,12 +55,13 @@ uint8_t arrayptr = 0;
 //gps reading
 uint8_t fix, numSat;
 uint32_t latitude, longitude;
-int16_t altitudeGPS;
+int16_t altGPS;
 
 float accX, accY, accZ;
 
 uint16_t battVolt;
 unsigned long lastRadio = 0;
+uint8_t navStat;
 
 void setup() {
   // put your setup code here, to run once:
@@ -86,7 +89,7 @@ void setup() {
   digitalWrite(LED_BUILTIN, LOW);
 }
 
-message makeMessage(float temperature, float altitude,  float pressure, uint8_t fix, uint8_t numSat, uint32_t latitude, uint32_t longitude, int16_t altGPS, uint16_t battVolt) {
+message makeMessage(float temperature, float altitude, float pressure) {
   message p{};
   p.value = 100;
   p.counter = counter++;
@@ -99,6 +102,8 @@ message makeMessage(float temperature, float altitude,  float pressure, uint8_t 
   p.longitude = longitude;
   p.altGPS = altGPS;
   p.battVolt = battVolt;
+  p.navStat = navStat;
+
   return p;
 };
 
@@ -130,7 +135,7 @@ void parsePacket(uint8_t cmd) {
 
     latitude = *(uint32_t*)&payload[2];
     longitude = *(uint32_t*)&payload[6];
-    altitudeGPS = (*(int16_t*)&payload[10]);
+    altGPS = (*(int16_t*)&payload[10]);
     break;
     case GYRO_GET: //accel wont be sent, so thats why the convertion is made (analog acceleration -> g-force -> acceleration (m/s^2))
     accX  = *(int16_t*)&payload[6]/1670.13;
@@ -139,6 +144,9 @@ void parsePacket(uint8_t cmd) {
     break;
     case BATT_GET:
     battVolt = *(uint16_t*)&payload[0];
+    break;
+    case NAV_STAT:
+    navStat = payload[0];
     break;
 
   }
@@ -187,7 +195,13 @@ void mspReadGyro() {
 
 void mspReadVoltage() {
   mspCmd(BATT_GET, nullptr, 0);
-  delay(10);
+  while (Serial1.available()) {
+    parseMSP(Serial1.read());
+  }
+}
+
+void mspReadMissionStatus() {
+  mspCmd(NAV_STAT, nullptr, 0);
   while (Serial1.available()) {
     parseMSP(Serial1.read());
   }
@@ -200,15 +214,17 @@ void loop() {
   mspReadGPS();
   mspReadGyro();
   mspReadVoltage();
+  mspReadMissionStatus();
   unsigned long now = millis();
   if (now - lastRadio >= 1000) {
     digitalWrite(LED_BUILTIN, HIGH);
-    message pkt = makeMessage(temperature, altitude, pressure, fix, numSat, latitude, longitude, altitudeGPS, battVolt);
+    message pkt = makeMessage(temperature, altitude, pressure);
     rf95.send((uint8_t*)&pkt, sizeof(pkt));
     rf95.waitPacketSent();
     Serial.println("Message sent!");
     digitalWrite(LED_BUILTIN, LOW);
     lastRadio = now;
+    
     Serial.print(temperature);
     Serial.print(pressure);
     Serial.println(altitude);
@@ -216,10 +232,11 @@ void loop() {
     Serial.println(numSat);
     Serial.print(latitude);
     Serial.println(longitude);
-    Serial.println(altitudeGPS);
+    Serial.println(altGPS);
     Serial.print(accX);
     Serial.print(accY);
     Serial.println(accZ);
     Serial.println(battVolt);
+    Serial.println(navStat);
   }
 }
