@@ -22,6 +22,8 @@ struct message {
   int16_t temp;
   int16_t alt; 
   int32_t pressure;
+  uint8_t fix;
+  uint8_t numSat;
   uint32_t latitude;
   uint32_t longitude;
   int16_t altGPS;
@@ -47,7 +49,7 @@ uint8_t arrayptr = 0;
 
 //gps reading
 uint8_t fix, numSat;
-float latitude, longitude;
+uint32_t latitude, longitude;
 int16_t altitudeGPS;
 
 unsigned long lastRadio = 0;
@@ -74,18 +76,22 @@ void setup() {
     Serial.println("Could not find a valid BMP280 sensor, check wiring!");
     while (1);
   }
+  pinMode(LED_BUILTIN, OUTPUT);
+  digitalWrite(LED_BUILTIN, LOW);
 }
 
-message makeMessage(float temperature, float altitude,  float pressure, float latitude, float longitude, float altGPS) {
+message makeMessage(float temperature, float altitude,  float pressure, uint8_t fix, uint8_t numSat, uint32_t latitude, uint32_t longitude, int16_t altGPS) {
   message p{};
   p.value = 100;
   p.counter = counter++;
   p.temp = temperature * 100; //conv to int
   p.alt = altitude * 100;
   p.pressure = pressure * 100;
-  p.latitude = latitude * 1e7;
-  p.longitude = longitude * 1e7;
-  p.altGPS = altGPS * 100;
+  p.fix = fix;
+  p.numSat = numSat;
+  p.latitude = latitude;
+  p.longitude = longitude;
+  p.altGPS = altGPS;
   return p;
 };
 
@@ -115,8 +121,8 @@ void parsePacket(uint8_t cmd) {
     fix  = payload[0];
     numSat = payload[1];
 
-    latitude = *(int32_t*)&payload[2]/1e7;
-    longitude = *(int32_t*)&payload[6]/1e7;
+    latitude = *(uint32_t*)&payload[2];
+    longitude = *(uint32_t*)&payload[6];
     altitudeGPS = (*(int16_t*)&payload[10]);
     break;
 
@@ -125,7 +131,6 @@ void parsePacket(uint8_t cmd) {
 }
 
 void parseMSP(uint8_t readChar) {
-
   switch (type) {
   case IDLE: type = (readChar == '$') ? DOLLAR : IDLE; break;
   case DOLLAR: type = (readChar == 'M') ? M : IDLE; break;
@@ -167,14 +172,19 @@ void loop() {
   unsigned long now = millis();
   if (now - lastRadio >= 1000) {
     digitalWrite(LED_BUILTIN, HIGH);
-    message pkt = makeMessage(temperature, altitude, pressure, latitude, longitude, altitudeGPS);
+    message pkt = makeMessage(temperature, altitude, pressure, fix, numSat, latitude, longitude, altitudeGPS);
     rf95.send((uint8_t*)&pkt, sizeof(pkt));
     rf95.waitPacketSent();
     Serial.println("Message sent!");
     digitalWrite(LED_BUILTIN, LOW);
     lastRadio = now;
-      Serial.print(temperature);
-  Serial.print(pressure);
-  Serial.println(altitude);
+    Serial.print(temperature);
+    Serial.print(pressure);
+    Serial.println(altitude);
+    Serial.print(fix);
+    Serial.println(numSat);
+    Serial.print(latitude);
+    Serial.println(longitude);
+    Serial.println(altitudeGPS);
   }
 }
