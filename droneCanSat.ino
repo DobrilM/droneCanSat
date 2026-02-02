@@ -14,6 +14,7 @@ RH_RF95 rf95(RFM95_CS, RFM95_INT);
 Adafruit_BMP280 bmp(BMP_CS);
 
 constexpr uint8_t GPS_GET = 106;
+constexpr uint8_t GYRO_GET = 102;
 
 int16_t counter = 0;  
 struct message {
@@ -51,6 +52,8 @@ uint8_t arrayptr = 0;
 uint8_t fix, numSat;
 uint32_t latitude, longitude;
 int16_t altitudeGPS;
+
+float accX, accY, accZ;
 
 unsigned long lastRadio = 0;
 
@@ -125,7 +128,11 @@ void parsePacket(uint8_t cmd) {
     longitude = *(uint32_t*)&payload[6];
     altitudeGPS = (*(int16_t*)&payload[10]);
     break;
-
+    case GYRO_GET: //accel wont be sent, so thats why the convertion is made (analog acceleration -> g-force -> acceleration (m/s^2))
+    accX  = *(int16_t*)&payload[6]/1670.13;
+    accY  = *(int16_t*)&payload[8]/1670.13;
+    accZ  = *(int16_t*)&payload[10]/1670.13; 
+    break;
 
   }
 }
@@ -164,11 +171,19 @@ void mspReadGPS() {
   }
 }
 
+void mspReadGyro() {
+  mspCmd(GYRO_GET, nullptr, 0);
+  while (Serial1.available()) {
+    parseMSP(Serial1.read());
+  }
+}
+
 void loop() {
   float temperature = bmp.readTemperature();
   float pressure = bmp.readPressure() / 100.0;   //hPa
   float altitude =  44330.0 * (1.0 - pow(pressure / PRESSURE_SEA, 0.1903));
   mspReadGPS();
+  mspReadGyro();
   unsigned long now = millis();
   if (now - lastRadio >= 1000) {
     digitalWrite(LED_BUILTIN, HIGH);
@@ -186,5 +201,8 @@ void loop() {
     Serial.print(latitude);
     Serial.println(longitude);
     Serial.println(altitudeGPS);
+    Serial.print(accX);
+    Serial.print(accY);
+    Serial.println(accZ);
   }
 }
