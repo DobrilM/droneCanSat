@@ -1,6 +1,7 @@
 #include <SPI.h>
 #include <RH_RF95.h>
 #include <Adafruit_BMP280.h>
+#include <Adafruit_SleepyDog.h>
 
 //radio definition
 #define RFM95_CS 8
@@ -122,6 +123,9 @@ void setup() {
     rcValues[i] = 1500;
   }
   rcValues[2] = 1000; //throttle needs to be low for arming
+
+  //enables watchdog with maximum interval of 2 seconds
+  Watchdog.enable(2000);
 }
 
 //assigning all data to byte array, ready to be sent through radio
@@ -310,4 +314,7 @@ void loop() {
     digitalWrite(LED_BUILTIN, LOW);
     lastRadio = now;
   }
+
+  //resets watchdog
+  Watchdog.reset();
 }
