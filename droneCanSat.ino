@@ -34,6 +34,7 @@ struct message {
   int16_t altGPS;
   uint16_t battVolt;
   uint8_t navStat;
+  uint8_t status;
 };
 
 uint8_t payload[16];
@@ -69,6 +70,8 @@ uint8_t navStat;
 
 uint16_t rcValues[16];
 
+int status = 0;
+bool landing = 0;
 void setup() {
   // put your setup code here, to run once:
   Serial.begin(9600);
@@ -114,6 +117,7 @@ message makeMessage(float temperature, float altitude, float pressure) {
   p.altGPS = altGPS;
   p.battVolt = battVolt;
   p.navStat = navStat;
+  p.status = status;
 
   return p;
 };
@@ -218,6 +222,26 @@ void mspReadMissionStatus() {
   }
 }
 
+void standbyMode(float h, float a) {
+  if (h > 50 && a > 3) { //3 m/s^2
+      status = 1;
+  }
+}
+
+void launchedMode(float h, float a) {
+  if (h < 300 && a < 0 ) {
+    rcValues[4] = 2000; //arm the fc 
+    status = 2;
+  }
+}
+
+void rtwpMode() {
+  rcValues[5] = 2000; //ch 6, set to navigate mission
+  if (navStat == 0) {
+    status = 3;
+  }
+}
+ 
 void loop() {
   float temperature = bmp.readTemperature();
   float pressure = bmp.readPressure() / 100.0;   //hPa
@@ -228,8 +252,20 @@ void loop() {
   mspReadMissionStatus();
   unsigned long now = millis();
 
-  if (now - lastMSP >= 20) {
-    mspCmd(RC_CMD, (uint8_t*)rcValues, 16);
+  switch (status) {
+    case 0: standbyMode(altitude, accY); break;
+    case 1: launchedMode(altitude, accY); break;
+    case 2: rtwpMode(); break;
+    case 3: landing = true; break;
+    default: 
+    while(1) {
+      delay(100);
+    }
+    break;
+  }
+
+  if (now - lastMSP >= 20 && !landing) {
+    mspCmd(RC_CMD, (uint8_t*)rcValues, 32);
     lastMSP = now;
   }
 
@@ -255,5 +291,6 @@ void loop() {
     Serial.println(accZ);
     Serial.println(battVolt);
     Serial.println(navStat);
+    Serial.println(status);
   }
 }
