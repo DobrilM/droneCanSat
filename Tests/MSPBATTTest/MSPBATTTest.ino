@@ -1,15 +1,11 @@
 
 //msp command codes
-constexpr uint8_t GPS_GET = 106;
+constexpr uint8_t BATT_GET = 130;
 constexpr uint8_t RC_CMD = 200;
 
 //structure of the byte array for the message sent through radio
 struct message {
-  uint8_t fix;
-  uint8_t numSat;
-  uint32_t latitude;
-  uint32_t longitude;
-  int16_t altGPS;
+  uint16_t battVolt;
 };
 
 //type of character read by msp
@@ -34,13 +30,11 @@ uint8_t cmd = 0;
 uint8_t checksum = 0;
 uint8_t arrayptr = 0;
 
-//gps reading
-uint8_t fix, numSat;
-uint32_t latitude, longitude;
-int16_t altGPS;
+
+uint16_t battVolt;
 
 unsigned long lastMSP = 0;
-unsigned long lastSerial =0;
+unsigned long lastSerial = 0;
 //values representing all channels for simulating rc input to fc
 uint16_t rcValues[16];
 
@@ -62,11 +56,7 @@ void setup() {
 //assigning all data to byte array, ready to be sent through radio
 message makeMessage() {
   message p{};
-  p.fix = fix;
-  p.numSat = numSat;
-  p.latitude = latitude;
-  p.longitude = longitude;
-  p.altGPS = altGPS;
+  p.battVolt = battVolt;
 
   return p;
 };
@@ -94,14 +84,9 @@ void mspCmd(uint8_t cmd, uint8_t* payload, uint8_t size) {
 //parsing the retrieved packet, using the read command as a baseline
 void parsePacket(uint8_t cmd) {
     switch (cmd) {
-    case GPS_GET:
-    fix  = payload[0];
-    numSat = payload[1];
-
-    latitude = *(uint32_t*)&payload[2];
-    longitude = *(uint32_t*)&payload[6];
-    altGPS = (*(int16_t*)&payload[10]);
-    break;
+      case BATT_GET:
+        battVolt = *(uint16_t*)&payload[0]; 
+        break;
   }
 }
 //parsing each byte one by one and creating a packet of data
@@ -133,8 +118,8 @@ void parseMSP(uint8_t readChar) {
 }
 
 //reading gps
-void mspReadGPS() {
-  mspCmd(GPS_GET, nullptr, 0);
+void mspReadBatt() {
+  mspCmd(BATT_GET, nullptr, 0);
   while (Serial1.available()) {
     parseMSP(Serial1.read());
   }
@@ -142,45 +127,20 @@ void mspReadGPS() {
 
 //main loop
 void loop() {
-  mspReadGPS();
-
+  mspReadBatt();
   unsigned long now = millis();
-  
-  if (now - lastSerial >= 1000) {
-  message pkt = makeMessage();
-  Serial.print("Fix: ");
-  Serial.println(pkt.fix);
-  
-  Serial.print("Satellites: ");
-  Serial.println(pkt.numSat);
-  
-  // Convert from 1e-7 degrees format to decimal degrees
-  double latDeg = pkt.latitude / 10000000.0;
-  double lonDeg = pkt.longitude / 10000000.0;
-  
-  Serial.print("Latitude: ");
-  Serial.print(latDeg, 7);
-  Serial.print("° (raw: ");
-  Serial.print(pkt.latitude);
-  Serial.println(")");
-  
-  Serial.print("Longitude: ");
-  Serial.print(lonDeg, 7);
-  Serial.print("° (raw: ");
-  Serial.print(pkt.longitude);
-  Serial.println(")");
-  
-  Serial.print("Altitude: ");
-  Serial.print(pkt.altGPS / 100.0); // Convert cm to meters
-  Serial.println(" m");
-  Serial.println("=================");
-  lastSerial = now;
-  }
-
   //sending msp
   if (now - lastMSP >= 20) {
     mspCmd(RC_CMD, (uint8_t*)rcValues, 32);
     lastMSP = now;
+  }
+  if (now - lastSerial >= 1000) {
+    message pkt = makeMessage();
+    float battVoltf = pkt.battVolt/100.0;
+    Serial.print(pkt.battVolt);
+    Serial.print(';');
+    Serial.println(battVoltf);
+    lastSerial = now;
   }
 
 }
