@@ -5,9 +5,10 @@ constexpr uint8_t RC_CMD = 200;
 
 //structure of the byte array for the message sent through radio
 struct message {
-  uint16_t battVolt;
+  uint8_t battVolt;
 };
 
+unsigned long lastMSP = 0;
 //type of character read by msp
 enum MSPType {
   IDLE,
@@ -31,9 +32,9 @@ uint8_t checksum = 0;
 uint8_t arrayptr = 0;
 
 
-uint16_t battVolt;
+uint8_t battVolt;
 
-unsigned long lastMSP = 0;
+unsigned long turnOnTime = millis();
 unsigned long lastSerial = 0;
 //values representing all channels for simulating rc input to fc
 uint16_t rcValues[16];
@@ -85,7 +86,7 @@ void mspCmd(uint8_t cmd, uint8_t* payload, uint8_t size) {
 void parsePacket(uint8_t cmd) {
     switch (cmd) {
       case BATT_GET:
-        battVolt = *(uint16_t*)&payload[0]; 
+        battVolt = payload[3]; 
         break;
   }
 }
@@ -93,23 +94,24 @@ void parsePacket(uint8_t cmd) {
 void parseMSP(uint8_t readChar) {
   switch (type) {
   case IDLE: type = (readChar == '$') ? DOLLAR : IDLE; break;
-  case DOLLAR: type = (readChar == 'M') ? M : IDLE; break;
-  case M: type = (readChar == '>') ? ARROW : IDLE; break;
-  case ARROW: dataSize = readChar; checksum ^= readChar; type = SIZE; break;
-  case SIZE: cmd = readChar; checksum ^= readChar; type = CMD; arrayptr = 0; break;
+  case DOLLAR:
+  type = (readChar == 'M') ? M : IDLE; break;
+  case M:
+  type = (readChar == '>') ? ARROW : IDLE; break;
+  case ARROW:
+  dataSize = readChar; type = SIZE; break;
+  case SIZE: 
+  cmd = readChar; checksum ^= readChar; type = CMD; arrayptr = 0; break;
   case CMD: 
     if (arrayptr < dataSize) {
-      payload[arrayptr] = readChar;
-      arrayptr++;
+      payload[arrayptr++] = readChar;
       checksum ^= readChar;
     } else {
       type = CHECKSUM;
     }
   break;
   case CHECKSUM: 
-    if (checksum == readChar) {
-      parsePacket(cmd);
-    }
+    parsePacket(cmd);
     checksum = 0;
     type = IDLE;
     break;
@@ -129,14 +131,14 @@ void mspReadBatt() {
 void loop() {
   mspReadBatt();
   unsigned long now = millis();
-  //sending msp
-  if (now - lastMSP >= 20) {
+  //sending msp`
+  if (now - lastMSP >= 50) {
     mspCmd(RC_CMD, (uint8_t*)rcValues, 32);
     lastMSP = now;
   }
   if (now - lastSerial >= 1000) {
     message pkt = makeMessage();
-    float battVoltf = pkt.battVolt/100.0;
+    float battVoltf = pkt.battVolt/10.0;
     Serial.print(pkt.battVolt);
     Serial.print(';');
     Serial.println(battVoltf);
