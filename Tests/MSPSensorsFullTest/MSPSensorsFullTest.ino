@@ -250,32 +250,28 @@ void mspReadMission() {
 //main loop
 void loop() {
   static unsigned long lastTelemetry = 0;
-    static unsigned long lastBMP = 0;
-    unsigned long now = millis();
-  if (now - lastTelemetry > 500) {
+  static unsigned long lastBMP = 0;
+  unsigned long now = millis();
+  if (now - lastTelemetry > 100) {
     mspReadBatt();
     mspReadGPS();
     mspReadGyro();
     mspReadMission();
-
     lastTelemetry = now;
   }
 
-  //if (now - lastBMP > 100) {
-    //bmp.performReading();
-    //lastBMP = now;
-  //}
-  //sending msp`
   if (now - lastMSP >= 20) {
     mspCmd(RC_CMD, (uint8_t*)rcValues, 32);
     lastMSP = now;
   }
+
   if (bmp.performReading()) {
     temperature = bmp.temperature;
     pressure = bmp.pressure / 100.0;   //hPa
     altitude =  bmp.readAltitude(PRESSURE_SEA);
   }
-  if (now - lastSerial >= 1000) {
+
+  if (now - lastSerial >= 500) {
     digitalWrite(LED_BUILTIN, HIGH);
     message pkt = makeMessage(temperature, altitude, pressure);
     rf95.send((uint8_t*)&pkt, sizeof(pkt));
