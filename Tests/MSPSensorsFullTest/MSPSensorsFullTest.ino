@@ -74,7 +74,6 @@ uint16_t battVolt;
 
 //reading mission status
 uint8_t navStat;
-
 unsigned long turnOnTime = millis();
 unsigned long lastSerial = 0;
 
@@ -271,10 +270,12 @@ void loop() {
     mspCmd(RC_CMD, (uint8_t*)rcValues, 32);
     lastMSP = now;
   }
+  if (bmp.performReading()) {
+    temperature = bmp.temperature;
+    pressure = bmp.pressure / 100.0;   //hPa
+    altitude =  bmp.readAltitude(PRESSURE_SEA);
+  }
   if (now - lastSerial >= 1000) {
-    //float temperature = bmp.temperature;
-    //float pressure = bmp.pressure / 100.0;   //hPa
-    //float altitude =  bmp.readAltitude(PRESSURE_SEA);
     digitalWrite(LED_BUILTIN, HIGH);
     message pkt = makeMessage(temperature, altitude, pressure);
     rf95.send((uint8_t*)&pkt, sizeof(pkt));
