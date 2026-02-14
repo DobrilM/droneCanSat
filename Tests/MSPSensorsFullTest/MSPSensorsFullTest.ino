@@ -85,7 +85,7 @@ uint16_t rcValues[16];
 void setup() {
   //Serial 0 init (only used for the initializing of the arduino)
   Serial.begin(9600);
-    while (!Serial);   // <-- IMPORTANT on M0
+    while (!Serial);   
     //rf95 setup
   Serial.print("read");
   pinMode(RFM95_RST, OUTPUT);
@@ -172,7 +172,7 @@ void parsePacket(uint8_t cmd) {
       numSat = payload[1];
       latitude  = *(uint32_t*)&payload[2];
       longitude = *(uint32_t*)&payload[6];
-      altGPS    = *(int16_t*)&payload[10];
+      altGPS = *(int16_t*)&payload[10];
       break;
 
     case GYRO_GET:

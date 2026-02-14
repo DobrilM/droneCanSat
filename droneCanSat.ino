@@ -1,7 +1,8 @@
 #include <SPI.h>
 #include <RH_RF95.h>
-#include <Adafruit_BMP280.h>
+#include <Adafruit_BMP3XX.h>
 #include <Adafruit_SleepyDog.h>
+#include <SD.h>
 
 //radio definition
 #define RFM95_CS 8
@@ -10,11 +11,13 @@
 #define RF95_FREQ 433.4 //CHANGE BEFORE LAUNCH!!!!!
 RH_RF95 rf95(RFM95_CS, RFM95_INT);
 
-//bmp definition
-#define BMP_CS 19
-#define PRESSURE_SEA 1013.25 //CHANGE BEFORE LAUNCH!!!!!
-Adafruit_BMP280 bmp(BMP_CS);
+//bmp define
+#define BMP_CS 16
+#define PRESSURE_SEA 982.3 //CHANGE BEFORE LAUNCH!!!!!
+Adafruit_BMP3XX bmp;
 
+#define SD_CS 15
+File logs;
 //Note: MSP is connected to Serial1
 
 //msp command codes
@@ -75,23 +78,27 @@ uint16_t battVolt;
 //reading mission status
 uint8_t navStat;
 
-//used for timing of both radio and 
-unsigned long lastRadio = 0;
-unsigned long lastMSP = 0;
+float temperature, altitude, pressure;
 
+//used for timing the radio, msp and sensor reading
+unsigned long lastRadio = 0;
+unsigned long lastMSP =0;
+unsigned long lastMspRead =0;
+unsigned long lastModeCheck =0;
 //values representing all channels for simulating rc input to fc
 uint16_t rcValues[16];
+
+float lastHeight = 0.0;
 
 //state of the CanSat (0 is waiting for launch, 1 is wating for descent, 2 is moving to the set waypoint, 3 is waiting to be retrieved)
 int status = 0;
 
-//check for when the CanSat is done with the mission
-bool landing = 0;
-
+unsigned long beforeFix = 0;
 //setup function
 void setup() {
   //Serial 0 init (only used for the initializing of the arduino)
   Serial.begin(9600);
+  while(!Serial); //wait for serial before continuing, because else there wont be any readable messages for debugging
 
   //rf95 setup
   pinMode(RFM95_RST, OUTPUT);
@@ -110,11 +117,14 @@ void setup() {
   rf95.setTxPower(23, false);
 
   //bmp init
-  if (!bmp.begin()) {  
+  if (!bmp.begin_SPI(BMP_CS)) {  
     Serial.println("Could not find a valid BMP280 sensor, check wiring!");
     while (1);
   }
 
+  if (!SD.begin(SD_CS)) {
+    Serial.println("SD not available");
+  }
   //msp init
   Serial1.begin(115200);
 
@@ -142,7 +152,6 @@ message makeMessage(float temperature, float altitude, float pressure) {
   p.battVolt = battVolt;
   p.navStat = navStat;
   p.status = status;
-
   return p;
 };
 
@@ -178,9 +187,9 @@ void parsePacket(uint8_t cmd) {
     altGPS = (*(int16_t*)&payload[10]);
     break;
     case GYRO_GET: //accel wont be sent, so thats why the convertion is made (analog acceleration -> g-force -> acceleration (m/s^2))
-    accX  = *(int16_t*)&payload[6]/1670.13;
-    accY  = *(int16_t*)&payload[8]/1670.13;
-    accZ  = *(int16_t*)&payload[10]/1670.13; 
+    accX  = *(int16_t*)&payload[0]/512.0;
+    accY  = *(int16_t*)&payload[2]/512.0;
+    accZ  = *(int16_t*)&payload[4]/512.0; 
     break;
     case BATT_GET:
     battVolt = *(uint16_t*)&payload[0];
@@ -189,33 +198,38 @@ void parsePacket(uint8_t cmd) {
     navStat = payload[0];
     break;
 
+
   }
 }
+
+//checksum needed????
+
 //parsing each byte one by one and creating a packet of data
 void parseMSP(uint8_t readChar) {
   switch (type) {
   case IDLE: type = (readChar == '$') ? DOLLAR : IDLE; break;
-  case DOLLAR: type = (readChar == 'M') ? M : IDLE; break;
-  case M: type = (readChar == '>') ? ARROW : IDLE; break;
-  case ARROW: dataSize = readChar; checksum ^= readChar; type = SIZE; break;
-  case SIZE: cmd = readChar; checksum ^= readChar; type = CMD; arrayptr = 0; break;
+  case DOLLAR:
+  type = (readChar == 'M') ? M : IDLE; break;
+  case M:
+  type = (readChar == '>') ? ARROW : IDLE; break;
+  case ARROW:
+  dataSize = readChar; type = SIZE; break;
+  case SIZE: 
+  cmd = readChar; //checksum ^= readChar; 
+  type = CMD; arrayptr = 0; break;
   case CMD: 
     if (arrayptr < dataSize) {
-      payload[arrayptr] = readChar;
-      arrayptr++;
-      checksum ^= readChar;
+      payload[arrayptr++] = readChar;
+      //checksum ^= readChar;
     } else {
       type = CHECKSUM;
     }
   break;
   case CHECKSUM: 
-    if (checksum == readChar) {
-      parsePacket(cmd);
-    }
-    checksum = 0;
+    parsePacket(cmd);
+    //checksum = 0;
     type = IDLE;
     break;
-
   }
 }
 
@@ -252,65 +266,110 @@ void mspReadMissionStatus() {
 }
 
 //all modes
-
-void standbyMode(float h, float a) {
-  if (h > 50 && a > 3) { //3 m/s^2
-      status = 1;
+void standbyMode(float h, int16_t hGPS, float a) {
+  if (hGPS > 1000 && a > 1 || h > 10 && a>1) { //a is in g-force. hGPS in raw values
+    status = 1;
   }
 }
 
-void launchedMode(float h, float a) {
-  if (h < 300 && a < 0 ) {
-    rcValues[4] = 2000; //arm the fc 
-    status = 2;
+void ascending(float h, float a) {
+  if (h - lastHeight < 0 && a < 0) {
+    status =2;
+  }
+  lastHeight = h;
+}
+
+void descending(float h, int16_t hGPS, float a, unsigned long now) {
+  if (h <900 || hGPS <90000 && hGPS != 0) {
+    rcValues[4] = 2000; //arm, ch5, high
+    status = 3;
+    beforeFix = now;
+  }
+}
+
+void waitForFix(unsigned long now) {
+  rcValues[5] = 2000; //altHold
+  if (now - beforeFix > 10000) { //10 s
+    status = 5;
+  }
+  if (fix > 0) {
+    status = 4;
   }
 }
 
 void rtwpMode() {
   rcValues[5] = 2000; //ch 6, set to navigate mission
   if (navStat == 0) {
-    status = 3;
+    rcValues[4] = 1000;
+    status = 5;
   }
 }
- 
+
+void land(float h) {
+  rcValues[5] = 1000; //turn off althold
+  rcValues[6] = 1000; //turn off rtwp
+  rcValues[2] = 1000;
+  if (h > 50 || h < 10) {
+    rcValues[2] = 1000; //cansat descends.
+  } else {
+    rcValues[2] = 1300; //slow down a bit
+  }
+}
 
 //main loop
 void loop() {
-  //reading values
-  float temperature = bmp.readTemperature();
-  float pressure = bmp.readPressure() / 100.0;   //hPa
-  float altitude =  44330.0 * (1.0 - pow(pressure / PRESSURE_SEA, 0.1903));
-  mspReadGPS();
-  mspReadGyro();
-  mspReadVoltage();
-  mspReadMissionStatus();
   unsigned long now = millis();
-  
-  //logic for all modes
-  switch (status) {
-    case 0: standbyMode(altitude, accY); break;
-    case 1: launchedMode(altitude, accY); break;
-    case 2: rtwpMode(); break;
-    case 3: landing = true; break;
-    default: 
-    while(1) {
-      delay(100);
-    }
-    break;
+  if (now - lastMspRead >= 100) {
+    mspReadGPS();
+    mspReadGyro();
+    mspReadVoltage();
+    mspReadMissionStatus();
+    lastMspRead = now;
   }
 
+  if (bmp.performReading()) {
+    temperature = bmp.readTemperature();
+    pressure = bmp.readPressure() / 100.0;   //hPa
+    altitude =  44330.0 * (1.0 - pow(pressure / PRESSURE_SEA, 0.1903));
+  }
+  //logic for all modes
+  if (now - lastModeCheck >= 1000) {
+    switch (status) {
+      case 0: standbyMode(altitude, altGPS, accY); break;
+      case 1: ascending(altitude, accY); break;
+      case 2: descending(altitude, altGPS, accY, now); break;
+      case 3: waitForFix(now); break;
+      case 4: rtwpMode(); break;
+      case 5: land(altitude); break;
+      default: 
+      while(1) {
+        delay(100);
+      }
+      break;
+    }
+    lastModeCheck =now; 
+  }
   //sending msp
-  if (now - lastMSP >= 20 && !landing) {
+  if (now - lastMSP >= 20) {
     mspCmd(RC_CMD, (uint8_t*)rcValues, 32);
     lastMSP = now;
   }
 
   //sending radio
-  if (now - lastRadio >= 1000) {
+  if (now - lastRadio >= 500) {
     digitalWrite(LED_BUILTIN, HIGH);
+
+    //make packet
     message pkt = makeMessage(temperature, altitude, pressure);
+
+    //send through radio
     rf95.send((uint8_t*)&pkt, sizeof(pkt));
     rf95.waitPacketSent();
+
+    //write to sd
+    logs = SD.open("log.txt", FILE_WRITE);
+    logs.write((uint8_t*)&pkt, sizeof(pkt));
+    logs.close();
     digitalWrite(LED_BUILTIN, LOW);
     lastRadio = now;
   }

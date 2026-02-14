@@ -178,7 +178,7 @@ void loop() {
   }
 
   //sending msp
-  if (now - lastMSP >= 20) {
+  if (now - lastMSP >= 50) {
     mspCmd(RC_CMD, (uint8_t*)rcValues, 32);
     lastMSP = now;
   }
