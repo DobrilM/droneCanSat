@@ -90,6 +90,7 @@ uint16_t rcValues[16];
 
 float lastHeight = 0.0;
 
+bool launched = 0;
 //state of the CanSat (0 is waiting for launch, 1 is wating for descent, 2 is moving to the set waypoint, 3 is waiting to be retrieved)
 int status = 0;
 
@@ -269,6 +270,7 @@ void mspReadMissionStatus() {
 void standbyMode(float h, int16_t hGPS, float a) {
   if (hGPS > 1000 && a > 1 || h > 10 && a>1) { //a is in g-force. hGPS in raw values
     status = 1;
+    launched = 1;
   }
 }
 
@@ -280,7 +282,7 @@ void ascending(float h, float a) {
 }
 
 void descending(float h, int16_t hGPS, float a, unsigned long now) {
-  if (h <900 || hGPS <90000 && hGPS != 0) {
+  if (h <900 || hGPS <90000 && hGPS != 0) { //raw gps data, if there is no fix hgps defaults to 0
     rcValues[4] = 2000; //arm, ch5, high
     status = 3;
     beforeFix = now;
@@ -298,9 +300,9 @@ void waitForFix(unsigned long now) {
 }
 
 void rtwpMode() {
-  rcValues[5] = 2000; //ch 6, set to navigate mission
+  rcValues[5] = 1000; //althold off
+  rcValues[6] = 2000; //ch 7, set to navigate mission
   if (navStat == 0) {
-    rcValues[4] = 1000;
     status = 5;
   }
 }
@@ -308,11 +310,13 @@ void rtwpMode() {
 void land(float h) {
   rcValues[5] = 1000; //turn off althold
   rcValues[6] = 1000; //turn off rtwp
-  rcValues[2] = 1000;
-  if (h > 50 || h < 10) {
-    rcValues[2] = 1000; //cansat descends.
+  if (h > 50) {
+    rcValues[2] = 1000;
+  } else if (h<50 && h>10) {
+    rcValues[2] = 1300;
   } else {
-    rcValues[2] = 1300; //slow down a bit
+    rcValues[2] = 1000;
+    rcValues[4] = 1000;
   }
 }
 
@@ -332,6 +336,7 @@ void loop() {
     pressure = bmp.readPressure() / 100.0;   //hPa
     altitude =  44330.0 * (1.0 - pow(pressure / PRESSURE_SEA, 0.1903));
   }
+
   //logic for all modes
   if (now - lastModeCheck >= 1000) {
     switch (status) {
@@ -356,7 +361,7 @@ void loop() {
   }
 
   //sending radio
-  if (now - lastRadio >= 500) {
+  if (now - lastRadio >= 500 && launched) {
     digitalWrite(LED_BUILTIN, HIGH);
 
     //make packet
