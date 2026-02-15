@@ -310,12 +310,10 @@ void rtwpMode() {
 void land(float h) {
   rcValues[5] = 1000; //turn off althold
   rcValues[6] = 1000; //turn off rtwp
-  if (h > 50) {
-    rcValues[2] = 1000;
-  } else if (h<50 && h>10) {
-    rcValues[2] = 1300;
+  if (h>10) {
+    rcValues[2] = 1300; //slowed descent
   } else {
-    rcValues[2] = 1000;
+    rcValues[2] = 1000;//throttle low and disarm
     rcValues[4] = 1000;
   }
 }
