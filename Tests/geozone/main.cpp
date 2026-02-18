@@ -31,12 +31,14 @@ float randomFloat(float min, float max)
 }
 
 int main(int argc, char* argv[]) {
-
-
-
 	srand(time(nullptr));
 	point min = {-10, -10};
 	point max = {10, 10};
+	std::fstream logs("logs.txt");
+	if (!logs.is_open()) {
+		std::cerr << "Failed to open logs.txt\n";
+		return 1;
+	}
 	std::vector<point> corners = {
 		{-8.1234321, -2.1987425},
 		{9.6859451, -6.2314984},
@@ -51,7 +53,7 @@ int main(int argc, char* argv[]) {
 		std::cout << "Too many arguments";
 		return 0;
 	}
-
+	
 	std::cout << "Hello world\n";
 	int testCount(std::stoi(argv[1]));
 	for (int i = 0; i < testCount; i++) {
@@ -59,19 +61,23 @@ int main(int argc, char* argv[]) {
 
 		std::cout << p.x << " ; " << p.y << " ; ";
 		std::vector<float> result = checkGeozone(p, corners);
+		bool insideGeozone = (result.at(0) > 0 && result.at(1) > 0 && result.at(2) > 0 && result.at(3) > 0 );
+
+		std::cout << p.x << " ; " << p.y << " ; ";
+
 		std::cout << result.at(0) << " ; ";
 		
 		std::cout << result.at(1) << " ; ";
 		std::cout << result.at(2) << " ; ";
 		std::cout << result.at(3) << " ; ";
 
-		if(result.at(0) > 0 && result.at(1) > 0 && result.at(2) > 0 && result.at(3) > 0 ) {
-			std::cout << true << " ; ";
-		} else {
-			std::cout << false << " ; ";
-		}
+		std::cout << insideGeozone << " ; ";
 		std::cout << "\n";
-	}
+
+		logs << "(" << p.x << "," << p.y << ")" << insideGeozone << "\n";
+	} 
+	logs.close();
+	
 	return 0;
 
 }
