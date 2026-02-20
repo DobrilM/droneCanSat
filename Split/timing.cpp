@@ -10,7 +10,7 @@ bool timingRadio(unsigned long now) {
 	}
 }
 
-bool timingSensor(unsigned long now) {
+bool timingSens(unsigned long now) {
 	static unsigned long lastSensor = 0;
 	if (now - lastSensor >= 100 ) {
 		lastSensor = now;
