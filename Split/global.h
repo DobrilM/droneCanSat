@@ -16,4 +16,5 @@ extern uint8_t navStat;
 
 extern float accY;
 
-
+extern bool geozoneCheck;
+extern uint8_t status;

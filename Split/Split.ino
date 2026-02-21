@@ -17,7 +17,7 @@ void setup() {
 
 void loop() {
   unsigned long now = millis();
-  bmpRead();
+  bmpData bmpData = bmpRead();
   if (timingSens(now)) {
     accY = imuRead();
     mspRead();
