@@ -6,6 +6,7 @@
 #include "mspRead.h"
 #include "mspWrite.h"
 #include "global.h"
+#include "geozone.h"
 
 void setup() {
   blinkSetup();
@@ -19,6 +20,7 @@ void loop() {
   unsigned long now = millis();
   bmpData bmpData = bmpRead();
   if (timingSens(now)) {
+    geozoneCheck();
     accY = imuRead();
     mspRead();
   }
