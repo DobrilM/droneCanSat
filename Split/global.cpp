@@ -12,6 +12,7 @@ uint16_t battVolt;
 
 //reading mission status
 uint8_t navStat;
-
+uint8_t status;
 float accY;
-
+bool geozoneCheck;
+bool launched;

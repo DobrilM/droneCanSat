@@ -7,6 +7,7 @@
 #include "mspWrite.h"
 #include "global.h"
 #include "geozone.h"
+#include "mode.h"
 
 void setup() {
   blinkSetup();
@@ -24,6 +25,7 @@ void loop() {
     accY = imuRead();
     mspRead();
   }
+  modeRun(bmpData.altitude, now);
   if(timingRadio(now)) {
     blink();
   }

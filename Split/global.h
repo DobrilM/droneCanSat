@@ -18,3 +18,4 @@ extern float accY;
 
 extern bool geozoneCheck;
 extern uint8_t status;
+extern bool launched;
