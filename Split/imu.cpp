@@ -13,5 +13,4 @@ void imuSetup() {
 float imuRead() {
 	imu.enableReport(SH2_ACCELEROMETER);
 	return sensorValue.un.accelerometer.y;
-
 }
