@@ -171,7 +171,7 @@ void loop() {
   if (now - lastMSP >= 20) {
     mspCmd(RC_CMD, (uint8_t*)rcValues, 32);
     lastMSP = now;
-  }
+  } 
   if (now - lastSerial >= 1000) {
     for (uint8_t j = 0; j < 8; j++) {
       Serial.print(rcValues[j]);

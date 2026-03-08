@@ -268,7 +268,7 @@ void loop() {
   if (bmp.performReading()) {
     temperature = bmp.temperature;
     pressure = bmp.pressure / 100.0;   //hPa
-    altitude =  bmp.readAltitude(PRESSURE_SEA);
+    altitude =  bmp.readAltitude(PRESSURE_SEA); 
   }
 
   if (now - lastSerial >= 500) {
