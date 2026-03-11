@@ -227,7 +227,7 @@ void loop() {
       accY = sensorValue.un.linearAcceleration.y/9.81;
       break;
   }
-  if (now - lastMSPReq > 25) {
+  /*if (now - lastMSPReq > 25) {
     switch (MSPReqTurn) {
       case 0: 
         if (msp.request(MSP_RAW_GPS, &gps, sizeof(gps))) {
@@ -259,7 +259,7 @@ void loop() {
     lastMSPReq = now;
     point coordinates = {latitude, longitude};
     geozoneStatus = geozoneCheck(coordinates);
-  }
+  }*/
 
   if (now - lastSerial > 1000) {
     digitalWrite(LED_BUILTIN, HIGH);
@@ -282,18 +282,18 @@ void loop() {
     Serial.print(";");
     Serial.print(accY);
     Serial.print(";");
-    Serial.print(geozoneStatus);
-    Serial.print(";");
-    char message[128];
-    sprintf(message, "%i;%i;%i;%i;%.7f;%.7f;%i;%i;%i;%i;%i", fix, numSat, rawLat, rawLong, latitude, longitude, gpsAlt, battVolt, navMode, navState, navError);
-    Serial.println(message);
+    //Serial.print(geozoneStatus);
+    //Serial.print(";");
+    //char message[128];
+    //sprintf(message, "%i;%i;%i;%i;%.7f;%.7f;%i;%i;%i;%i;%i", fix, numSat, rawLat, rawLong, latitude, longitude, gpsAlt, battVolt, navMode, navState, navError);
+    //Serial.println(message);
     lastSerial = now;
     digitalWrite(LED_BUILTIN, LOW);
   }
 
-
+/*
   if (now - lastMSP > 50) {
     msp.command(MSP_SET_RAW_RC, &rc, sizeof(rc));
     lastMSP = now;
-  }
+  }*/
 }
