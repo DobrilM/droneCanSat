@@ -10,7 +10,7 @@
 #define RFM95_CS 8
 #define RFM95_INT 3
 #define RFM95_RST 4
-#define RF95_FREQ 433.4 //CHANGE BEFORE LAUNCH!!!!!
+#define RF95_FREQ 433.0 //CHANGE BEFORE LAUNCH!!!!!
 RH_RF95 rf95(RFM95_CS, RFM95_INT);
 
 //bmp define
@@ -36,6 +36,7 @@ msp_set_raw_rc_t rc;
 msp_raw_gps_t gps;
 msp_analog_t batt;
 msp_nav_status_t navStat;
+msp_inav_status_t inavStat;
 
 struct message {
 
@@ -67,7 +68,7 @@ uint8_t numSat;
 uint32_t rawLat;
 uint32_t rawLong;
 int16_t gpsAlt;
-
+uint32_t fc_arming_flags;
 uint16_t battVolt;
 
 uint8_t navMode;
@@ -101,7 +102,7 @@ uint8_t MSPReqTurn = 0;
 unsigned long beforeFix = 0;
 
 void setup() {
-  //Serial 0 init (only used for the initializing of the arduino)
+  //Serial 0 init (only used for the initializing of the arduino) 
   Serial.begin(9600);
   while(!Serial); //wait for serial before continuing, because else there wont be any readable messages for debugging
   Serial.print("test");
@@ -144,7 +145,7 @@ void setup() {
   }
   Serial1.begin(115200);
   msp.begin(Serial1);
-  for (int i=0; i < MSP_MAX_SUPPORTED_CHANNELS; i++) {
+  for (int i=0; i < MSP_MAX_SUPPORTED_C HANNELS; i++) {
     rc.channel[i] = 1500;
   }
   rc.channel[2] = 1000;
@@ -192,10 +193,10 @@ bool geozoneCheck(point coordinates) {
   uint8_t polygonCount = sizeof(borders)/sizeof(borders[0]);
   for (uint8_t i =0; i < polygonCount-1; i++) {
     geoChecksum += vecCheck(borders[i], borders[i+1], coordinates);
-    Serial.print(geoChecksum);
+    //Serial.print(geoChecksum);
   }
   geoChecksum += vecCheck(borders[polygonCount-1], borders[0], coordinates);
-  Serial.println(geoChecksum);
+  //Serial.println(geoChecksum);
   return (geoChecksum == polygonCount);
 }
 
@@ -227,7 +228,7 @@ void loop() {
       accY = sensorValue.un.linearAcceleration.y/9.81;
       break;
   }
-  /*if (now - lastMSPReq > 25) {
+  if (now - lastMSPReq > 25) {
     switch (MSPReqTurn) {
       case 0: 
         if (msp.request(MSP_RAW_GPS, &gps, sizeof(gps))) {
@@ -253,13 +254,19 @@ void loop() {
           navState = navStat.state;
           navError = navStat.error;
         }
+        MSPReqTurn = 3;
+        break;
+        case 3:
+        if(msp.request(MSP2_INAV_STATUS, &inavStat, sizeof(inavStat))) {
+          fc_arming_flags = inavStat.fc_arming_flags;
+        }
         MSPReqTurn = 0;
         break;
     }
     lastMSPReq = now;
     point coordinates = {latitude, longitude};
     geozoneStatus = geozoneCheck(coordinates);
-  }*/
+  }
 
   if (now - lastSerial > 1000) {
     digitalWrite(LED_BUILTIN, HIGH);
@@ -271,22 +278,23 @@ void loop() {
     rf95.send((uint8_t*)&pkt, sizeof(pkt));
     rf95.waitPacketSent();
 
-    //write to sd
-    //logs = SD.open("log.txt", FILE_WRITE);
-    //logs.write((uint8_t*)&pkt, sizeof(pkt));
-    //logs.close();
-    //Serial.println("radio sent");
-    //Serial.print(temperature);
-    //Serial.print(pressure);
-    //Serial.print(altitude);
-    //Serial.print(";");
-    //Serial.print(accY);
-    //Serial.print(";");
-    //Serial.print(geozoneStatus);
-    //Serial.print(";");
-    //char message[128];
-    //sprintf(message, "%i;%i;%i;%i;%.7f;%.7f;%i;%i;%i;%i;%i", fix, numSat, rawLat, rawLong, latitude, longitude, gpsAlt, battVolt, navMode, navState, navError);
-    //Serial.println(message);
+    // write to sd
+    // logs = SD.open("log.txt", FILE_WRITE);
+    // logs.write((uint8_t*)&pkt, sizeof(pkt));
+    // logs.close();
+    Serial.print(fc_arming_flags);
+    Serial.println("radio sent");
+    Serial.print(temperature);
+    Serial.print(pressure);
+    Serial.print(altitude);
+    Serial.print(";");
+    Serial.print(accY);
+    Serial.print(";");
+    Serial.print(geozoneStatus);
+    Serial.print(";");
+    char message[128];
+    sprintf(message, "%i;%i;%i;%i;%.7f;%.7f;%i;%i;%i;%i;%i", fix, numSat, rawLat, rawLong, latitude, longitude, gpsAlt, battVolt, navMode, navState, navError);
+    Serial.println(message);
     lastSerial = now;
     digitalWrite(LED_BUILTIN, LOW);
   }

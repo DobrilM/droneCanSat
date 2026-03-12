@@ -103,6 +103,15 @@
 #define MSP_MODE_NAVLAUNCH   28
 #define MSP_MODE_AUTOTRIM    29
 
+#define MSP2_INAV_STATUS 8192
+
+struct msp_inav_status_t {
+  uint32_t temp01;
+  uint32_t temp02;
+  uint8_t temp03;
+  uint32_t fc_arming_flags;
+  uint32_t fc_active_modes;
+} __attribute__ ((packed));
 
 // MSP_API_VERSION reply
 struct msp_api_version_t {
