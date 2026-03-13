@@ -15,7 +15,7 @@ RH_RF95 rf95(RFM95_CS, RFM95_INT);
 
 //bmp define
 #define BMP_CS 16
-#define PRESSURE_SEA 982.3 //CHANGE BEFORE LAUNCH!!!!!
+#define PRESSURE_SEA 1013.5 //CHANGE BEFORE LAUNCH!!!!!
 Adafruit_BMP3XX bmp;
 
 //imu define
@@ -100,7 +100,7 @@ uint8_t state;
 
 uint8_t MSPReqTurn = 0;
 unsigned long beforeFix = 0;
-
+unsigned long setNavStateTime = 0;
 void setup() {
   //Serial 0 init (only used for the initializing of the arduino) 
   Serial.begin(9600);
@@ -145,7 +145,7 @@ void setup() {
   }
   Serial1.begin(115200);
   msp.begin(Serial1);
-  for (int i=0; i < MSP_MAX_SUPPORTED_C HANNELS; i++) {
+  for (int i=0; i < MSP_MAX_SUPPORTED_CHANNELS; i++) {
     rc.channel[i] = 1500;
   }
   rc.channel[2] = 1000;
@@ -198,6 +198,63 @@ bool geozoneCheck(point coordinates) {
   geoChecksum += vecCheck(borders[polygonCount-1], borders[0], coordinates);
   //Serial.println(geoChecksum);
   return (geoChecksum == polygonCount);
+}
+
+
+  void standbyMode(float h, float a) {
+    if (h > 20 && a > 0.5) {
+      state = 1;
+    }
+  }
+  void ascending(float a) {
+    if (a < -0.8) {
+      state =2;
+    }
+  }
+  void descending(float h, unsigned long now) {
+    if (h < 900) {
+      beforeFix = now;
+      rc.channel[2] = 1000;
+      rc.channel[4] = 2000; //ARM
+      state =3;
+    }
+  }
+
+  void waitForFix(unsigned long now) {
+
+    rc.channel[5] = 2000; //POS_HOLD on
+
+    if (now - beforeFix >10000 && fix == 0) {
+      state = 5;
+      rc.channel[5] = 1000; //pos hold off
+    }
+
+    if (fix >0) {
+      state = 4;
+      setNavStateTime = now;
+      rc.channel[5] = 1000; //pos hold off
+    }
+  }
+  void rtwpMode(uint8_t navError, unsigned long now) {
+    rc.channel[6] = 2000; //wp nav on
+    if(navError == 4 || now - setNavStateTime > 50000 ) { // so for some reason the guys 
+      rc.channel[6] = 1000; //wp nav off                  // that made the msp protocol thought that it was a good decision to put the
+      state = 5;                                          //"mission complete" flag as an error (MSP_NAV_STATUS_ERROR_FINISH = 4, see lib)
+    }
+
+  }
+
+void land(float h) {
+  rc.channel[2] = 1100; //throttle low for landing
+  if (h < 10) {
+    rc.channel[2] = 1000; //throttle off
+    rc.channel[4] = 1000; //disarm
+  }
+}
+
+void failsafe() {
+  rc.channel[2] = 1000;
+  rc.channel[4] = 1000; 
 }
 
 void loop() {
@@ -254,18 +311,34 @@ void loop() {
           navState = navStat.state;
           navError = navStat.error;
         }
-        MSPReqTurn = 3;
-        break;
-        case 3:
-        if(msp.request(MSP2_INAV_STATUS, &inavStat, sizeof(inavStat))) {
-          fc_arming_flags = inavStat.fc_arming_flags;
-        }
         MSPReqTurn = 0;
         break;
+        // case 3:
+        // // if(msp.request(MSP2_INAV_STATUS, &inavStat, sizeof(inavStat))) {
+        // //   fc_arming_flags = inavStat.fc_arming_flags;
+        // // }
+        // MSPReqTurn = 0;
+        // break;
     }
     lastMSPReq = now;
     point coordinates = {latitude, longitude};
-    geozoneStatus = geozoneCheck(coordinates);
+    //geozoneStatus = geozoneCheck(coordinates);
+
+    //hardcode for testing
+    //fix =0;
+    //geozoneStatus = 1;
+  }
+  if (state > 3 && (!geozoneStatus || navError > 0)) {
+    state = 6;
+  }
+  switch (state) {
+        case 0: standbyMode(altitude, accY); break;
+        case 1: ascending(accY); break;
+        case 2: descending(altitude, now); break;
+        case 3: waitForFix(now); break;
+        case 4: rtwpMode(navState, now); break;
+        case 5: land(altitude); break;
+        case 6: failsafe(); break;
   }
 
   if (now - lastSerial > 1000) {
@@ -282,8 +355,8 @@ void loop() {
     // logs = SD.open("log.txt", FILE_WRITE);
     // logs.write((uint8_t*)&pkt, sizeof(pkt));
     // logs.close();
-    Serial.print(fc_arming_flags);
-    Serial.println("radio sent");
+    //Serial.print(fc_arming_flags);
+    //Serial.println("radio sent");
     Serial.print(temperature);
     Serial.print(pressure);
     Serial.print(altitude);
@@ -295,13 +368,21 @@ void loop() {
     char message[128];
     sprintf(message, "%i;%i;%i;%i;%.7f;%.7f;%i;%i;%i;%i;%i", fix, numSat, rawLat, rawLong, latitude, longitude, gpsAlt, battVolt, navMode, navState, navError);
     Serial.println(message);
+      switch (state) {
+        case 0: Serial.println("radio off");break;
+        case 1: Serial.println("ascending");break;
+        case 2: Serial.println("descending");break;
+        case 3: Serial.println("waiting for fix");break;
+        case 4: Serial.println("going to wp");
+        case 5: Serial.println("landing");break;
+        case 6: Serial.println("failsafe"); break;
+      }
     lastSerial = now;
     digitalWrite(LED_BUILTIN, LOW);
   }
 
-/*
   if (now - lastMSP > 50) {
     msp.command(MSP_SET_RAW_RC, &rc, sizeof(rc));
     lastMSP = now;
-  }*/
+  }
 }
