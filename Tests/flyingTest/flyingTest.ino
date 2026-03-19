@@ -4,6 +4,7 @@
 #include <Adafruit_BMP3XX.h>
 #include <Adafruit_SleepyDog.h>
 #include <Adafruit_BNO08x.h>
+//#include <SD.h>
 
 //radio definition
 #define RFM95_CS 8
@@ -17,7 +18,7 @@ RH_RF95 rf95(RFM95_CS, RFM95_INT);
 #define PRESSURE_SEA 1014.5 //CHANGE BEFORE LAUNCH!!!!!
 Adafruit_BMP3XX bmp;
 
-//bno define
+//imu define
 #define BNO08X_RESET 18
 Adafruit_BNO08x  bno08x(BNO08X_RESET);
 sh2_SensorValue_t sensorValue;
@@ -30,41 +31,40 @@ float accX, accY, accZ;
 //msp define
 MSP msp;
 
-//msp data define
+//msp reading 
 msp_set_raw_rc_t rc;
 msp_raw_gps_t gps;
 msp_analog_t batt;
 msp_nav_status_t navStat;
 msp_inav_status_t inavStat;
 
-
-//message structure define
+//telemetry message 
 struct message {
-  
-  //number of packet
+
+  //packet count
   uint32_t packetCounter;
 
-  //bmp
+  //bmp data
   int16_t temp;
   int16_t alt; 
   int32_t pressure;
 
-  //gps
+  //gps data
   uint8_t fix;
   uint8_t numSat;
   uint32_t rawLat;
   uint32_t rawLong;
   int16_t gpsAlt;
 
-  //battery voltage
+  //battery
   uint16_t battVolt;
 
-  //bno
+  //imu data
   int16_t accX;
   int16_t accY;
   int16_t accZ;
-
-  //navigation 
+  
+  //inav fc data
   uint8_t navMode;
   uint8_t navState;
   uint8_t navError;
@@ -76,7 +76,10 @@ struct message {
   uint8_t geozoneStatus;
 };
 
-//global var definition
+//global var defenition
+
+uint32_t packetCounter = 0;
+
 float temperature, altitude, pressure;
 
 uint8_t fix;
@@ -96,14 +99,14 @@ float longitude;
 
 bool geozoneStatus;
 
-
-//geozone point typedefine
+//point type define
 struct point {
   float x;
   float y;
 };
 
-//border define
+
+//borders
 constexpr point borders[4] = {
 
   //actual coords launch site
@@ -114,7 +117,7 @@ constexpr point borders[4] = {
 
 };
 
-//mode typedefine
+//modes define
 typedef enum : uint8_t {
   STANDBY=0,
   ASCENDING,
@@ -122,34 +125,32 @@ typedef enum : uint8_t {
   WAITFORFIX,
   RTWP,
   FAILSAFE,
-  BEFOREROCKET,
 } state_t;
 
-state_t state = BEFOREROCKET;
+state_t state;
 
-//transition and temp variables
+//mode logic vars
+float maxHeight = 0;
 float lastHeight = 0;
 uint8_t MSPReqTurn = 0;
 unsigned long beforeFix = 0;
 unsigned long setNavStateTime = 0;
-unsigned long missionStart =0;
-uint8_t calledSum =0;
 bool rcOn = true;
+
+//mode switch delay setup
+uint8_t calledSum =0;
 bool checkChange();
 
-//packetcounter
-uint32_t packetCounter = 0;
-
-//rc channel values
+//rc values fc disarmed
 const msp_set_raw_rc_t  valuesDisarmed = {
   1500,
   1500,
   1000,
   1500,
-  2000, //angle
-  1000, //nav wp
-  1000, //nav alt/pos hold
-  1000, //arm
+  2000,
+  1000, //angle
+  1000,
+  1000,
   1000,
   1000,
   1000,
@@ -166,10 +167,10 @@ const msp_set_raw_rc_t  valuesArmed = {
   1500,
   1000,
   1500,
-  2000, //angle
-  1000, //nav wp
-  1000, //nav alt/pos hold
-  2000, //arm
+  2000,//angle
+  1000,//arm
+  1000,
+  2000,// ch8 arm
   1000,
   1000,
   1000,
@@ -186,10 +187,29 @@ const msp_set_raw_rc_t  valuesArmedAltHold = {
   1500,
   1750, //throttle
   1500,
-  2000, //angle
-  1000, //nav wp
-  1500, //nav alt/pos hold
-  2000, //arm
+  2000,//arm
+  1000,//angle
+  1500,//alt_hold
+  2000,
+  1000,
+  1000,
+  1000,
+  1000,
+  1000,
+  1000,
+  1000,
+  1000,
+};
+
+const msp_set_raw_rc_t  valuesArmedPosHold = {
+  1500,
+  1500,
+  1750, //throttle
+  1500,
+  2000,//arm
+  2000,//angle
+  2000,//alt_hold
+  1000,
   1000,
   1000,
   1000,
@@ -206,10 +226,10 @@ const msp_set_raw_rc_t  valuesArmedWpNav = {
   1500,
   1000,
   1500,
-  2000, //angle
-  2000, //nav wp
-  1000, //nav alt/pos hold
-  2000, //arm
+  2000,//arm
+  2000,//angle
+  1000,
+  2000,//wpnav
   1000,
   1000,
   1000,
@@ -219,7 +239,6 @@ const msp_set_raw_rc_t  valuesArmedWpNav = {
   1000,
   1000,
 };
-
 
 void setup() {
   //rf95 setup
@@ -235,30 +254,30 @@ void setup() {
     while (1);
   }
   rf95.setTxPower(23, false);
-
   //bmp init
   if (!bmp.begin_SPI(BMP_CS)) { 
     while (1);
   }
-  
-  //bno init
+  /*if (!SD.begin(SD_CS)) {
+    while(1);
+  }*/
+
   if (!bno08x.begin_I2C()) {
     while (1) { delay(10); }
   }
 
-  //msp init
+  //msp setup
   Serial1.begin(115200);
-  delay(2000); // give FC time to boot
   msp.begin(Serial1);
 
-  //rc channel init
+  //channel setup
   for (int i=0; i < MSP_MAX_SUPPORTED_CHANNELS; i++) {
     rc.channel[i] = 1000;
   }
   rc.channel[2] = 1000;
-  rc.channel[4] = 2000; //angle
-
+  rc.channel[4] = 2000;
 }
+
 
 //message creation
 message makeMessage() {
@@ -290,21 +309,18 @@ message makeMessage() {
   return p;
 }
 
-//bno
+//imu
 void setReports(void) {
   if (!bno08x.enableReport(SH2_LINEAR_ACCELERATION)) {
   }
 }
 
-
-//geozone
-
-//check individual vector
+//vector check
 bool vecCheck(point a, point b, point c) {
   return ((b.x - a.x)*(c.y - a.y) - (b.y - a.y)*(c.x - a.x) < 0);
 }
 
-//check all borders
+//geozone algorithm
 bool geozoneCheck(point coordinates) {
   uint8_t geoChecksum = 0;
   uint8_t polygonCount = sizeof(borders)/sizeof(borders[0]);
@@ -316,68 +332,54 @@ bool geozoneCheck(point coordinates) {
 }
 
 
+  void standbyMode(unsigned long now) {
+    static unsigned long standby = now;
+    if (now - standby > 5000) {
+      
+      state = ASCENDING;
+    }
+  }
+  void ascending(unsigned long now, float h) {
+    static unsigned long ascend = now;
+    if (now - ascend > 3000) {
+      rc = valuesArmed; 
+    }
+    if (now - ascend > 6000) {
+      rc.channel[2] = 1400;
+    }
+    if (now - ascend > 8000) {
+      rc.channel[2] = 1650;
+    }
+    if (now - ascend > 10000) {
+      rc = valuesArmedAltHold;
+      //state = DESCENDING;
+      state = FAILSAFE;
+    }
 
-//mode selections
+  }
+  void descending(unsigned long now) {
+    static unsigned long descent = now;
 
-  //standby
-  void standbyMode(float h) {
-    if (h > 50) {
-      if(checkChange()) {
-        state =ASCENDING;
-        calledSum =0;
-      } 
+    if (now - descent > 3000 ) {
+      rc = valuesArmedPosHold;
+      state = WAITFORFIX;
     }
   }
 
-  //ascend
-  void ascending(float lastH, float h, unsigned long now) {
-    if (h - lastH < 0) {
-      if(checkChange()) {
-        missionStart = now;
-        state =DESCENDING;
-        calledSum =0;
-      } 
-    }
-  }
-
-  //descend
-  void descending(float h, unsigned long now) {
-    if (h < 900 && maxHeight-h > 50) {
-      beforeFix = now;
-      rc = valuesArmed;
-    if(checkChange()) {
-        state =WAITFORFIX;
-        calledSum =0;
-      } 
-    }
-  }
-
-  //wait for fix in the air
   void waitForFix(unsigned long now) {
-    rc = valuesArmedAltHold;
+    static unsigned long waitForFix = now;
 
-    //if timeout
-    if (now - beforeFix >30000 && fix <2) {
-      if(checkChange()) {
-        state =FAILSAFE;
-        calledSum =0;
-      }
-      //if fix
-    } else if (fix > 1) {
-      if(checkChange()) {
-        state =RTWP;
-        calledSum =0;
-      } 
-      setNavStateTime = now;
+    if (now - waitForFix >2000) {
+      rc = valuesArmedWpNav;
+      state = RTWP;
     }
   }
 
-//return to waypoint 
-void rtwpMode(uint8_t navError, unsigned long now) {
+void rtwpMode(unsigned long now) {
     rc = valuesArmedWpNav;
 
-    if(navError == 4) {
-      rc.channel[6] = 1000;
+    if(navError == 4 || now - setNavStateTime > 50000 ) {
+      rc.channel[6] = 1000; //wp nav off
       if(checkChange()) {
         state =FAILSAFE;
         calledSum =0;
@@ -386,16 +388,6 @@ void rtwpMode(uint8_t navError, unsigned long now) {
 
   }
 
-//test before putting in the rocket (for 1 minute)
-void tempTestMode(unsigned long now) {
-    static unsigned long beforeRocket = now;
-
-    if (now - beforeRocket > 60000) {
-      state = STANDBY;
-    }
-  }
-
-//turn on failsafe on fc
 void failsafe() {
   rcOn = false;
 }
@@ -409,49 +401,45 @@ void modeLogic(unsigned long now) {
 
   //failsafe check
 
-  //if outside geozone, while having gps fix
-  if (fix >0 && !geozoneStatus) {
-    state = FAILSAFE;
-  }
-
-  //if there is navigation error
-  if (state >3 && navError > 0) {
-    state = FAILSAFE;
-  }
-
-  //if battery is dead
-  if (battVolt < 11.0) {
-    state = FAILSAFE;
-  }
-  calledSum++;
+  //fix and outside geozone
+  // if (fix >0 && !geozoneStatus) {
+  //   state = FAILSAFE;
+  // }
+  // //outside rocket and inav gives an error
+  // if (state >3 && navError > 0) {
+  //   state = FAILSAFE;
+  // }
+  // //battery below 11v
+  // if (battVolt < 11.0) {
+  //   state = FAILSAFE;
+  // }
   
-  //if we are longer in the air then allowed
-  if (now - missionStart > 80000) {
-    state =FAILSAFE;
+  if (now > 120000) {
+    state = FAILSAFE;
   }
 
+  calledSum++;
+  //while (fix > 0) {
   //mode selection
   switch (state) {
-        case STANDBY: standbyMode(altitude); break;
-        case ASCENDING: ascending(lastHeight, altitude, now); break;
-        case DESCENDING: descending(altitude, now); break;
+        case STANDBY: standbyMode(now); break;
+        case ASCENDING: ascending(now, altitude); break;
+        case DESCENDING: descending(now); break;
         case WAITFORFIX: waitForFix(now); break;
-        case RTWP: rtwpMode(navState, now); break;
+        case RTWP: rtwpMode(now); break;
         case FAILSAFE: failsafe(); break;
-        case BEFOREROCKET: tempTestMode(now); break;
+  //}
   }
-
 }
-
 
 void loop() {
   unsigned long now = millis();
-
   static unsigned long lastMSP = 0;
   static unsigned long lastMSPReq = 0;
   static unsigned long lastSerial = 0;
   
   //read bmp
+
   if (bmp.performReading()) {
     temperature = bmp.readTemperature();
     pressure = bmp.readPressure() / 100.0;   //hPa
@@ -459,6 +447,7 @@ void loop() {
   } 
 
   //read imu
+
   if (bno08x.wasReset()) {
     setReports();
   }
@@ -467,7 +456,7 @@ void loop() {
     return;
   }
 
-  switch (sensorValue.sensorId) {
+  switch (sensorValue.sensorId) {  
     case SH2_LINEAR_ACCELERATION:
       accX = sensorValue.un.linearAcceleration.x;
       accY = sensorValue.un.linearAcceleration.y;
@@ -477,8 +466,6 @@ void loop() {
 
   //read msp data and geozone 
   if (now - lastMSPReq > 500) {
-
-        //gps
         if (msp.request(MSP_RAW_GPS, &gps, sizeof(gps))) {
           fix = gps.fixType;
           numSat = gps.numSat;
@@ -489,22 +476,17 @@ void loop() {
           gpsAlt = gps.alt;
         }
 
-        //battery
         if(msp.request(MSP_ANALOG, &batt, sizeof(batt))) {
           battVolt = batt.vbat;
         }
-        
-        //navigation data
+
         if(msp.request(MSP_NAV_STATUS, &navStat, sizeof(navStat))) {
           navMode = navStat.mode;
           navState = navStat.state;
           navError = navStat.error;
         }
 
-
     lastMSPReq = now;
-
-    //geozone
     point coordinates = {latitude, longitude};
     geozoneStatus = geozoneCheck(coordinates);
 
@@ -517,30 +499,32 @@ void loop() {
   //failsafe logic and mode selection
   modeLogic(now);
 
-  //rc msp sending
+  //rc send
   if (now - lastMSP > 50 && rcOn) {
     msp.command(MSP_SET_RAW_RC, &rc, sizeof(rc));
     lastMSP = now;
   }
 
 
-  //radio
+  //serial, radio and sd
   if (now - lastSerial > 1000) {
     digitalWrite(LED_BUILTIN, HIGH);
-
+    
     //make packet
     message pkt = makeMessage();
-
-    //if outside rocket or before rocket send radio
-    if (state >=2) {
-      //send through radio
+    packetCounter = rc.channel[2];
+     
       rf95.send((uint8_t*)&pkt, sizeof(pkt));
       rf95.waitPacketSent();
-    }
+    
+    // write to sd
+    // logs = SD.open("log.txt", FILE_WRITE);
+    // logs.write((uint8_t*)&pkt, sizeof(pkt));
+    // logs.close();
 
     lastSerial = now;
     digitalWrite(LED_BUILTIN, LOW);
-    packetCounter++;
+    //packetCounter++;
   }
 
 }
