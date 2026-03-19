@@ -23,6 +23,9 @@ Adafruit_BNO08x  bno08x(BNO08X_RESET);
 sh2_SensorValue_t sensorValue;
 float accX, accY, accZ;
 
+//sd define
+//#define SD_CS 15
+//File logs;
 
 //msp define
 MSP msp;
@@ -66,8 +69,10 @@ struct message {
   uint8_t navState;
   uint8_t navError;
 
+  //cansat mode
   uint8_t state;
 
+  //geozone
   uint8_t geozoneStatus;
 };
 
@@ -154,6 +159,8 @@ const msp_set_raw_rc_t  valuesDisarmed = {
   1000,
   1000,
 };
+
+//rc values fc armed
 const msp_set_raw_rc_t  valuesArmed = {
   1500,
   1500,
@@ -173,6 +180,7 @@ const msp_set_raw_rc_t  valuesArmed = {
   1000,
 };
 
+//rc values fc armed + altitude hold on
 const msp_set_raw_rc_t  valuesArmedAltHold = {
   1500,
   1500,
@@ -192,6 +200,7 @@ const msp_set_raw_rc_t  valuesArmedAltHold = {
   1000,
 };
 
+//rc values fc armed + waypoint navigation on
 const msp_set_raw_rc_t  valuesArmedWpNav = {
   1500,
   1500,
@@ -333,7 +342,7 @@ bool geozoneCheck(point coordinates) {
 
   //descend
   void descending(float h, unsigned long now) {
-    if (h < 900) {
+    if (h < 900 && maxHeight-h > 50) {
       beforeFix = now;
       rc = valuesArmed;
     if(checkChange()) {
@@ -360,7 +369,6 @@ bool geozoneCheck(point coordinates) {
         calledSum =0;
       } 
       setNavStateTime = now;
-
     }
   }
 
@@ -392,11 +400,13 @@ void failsafe() {
   rcOn = false;
 }
 
+//3 sec delay between mode switch
 bool checkChange() {
   return (calledSum < 6 && state != FAILSAFE);
 }
 
 void modeLogic(unsigned long now) {
+
   //failsafe check
 
   //if outside geozone, while having gps fix
@@ -499,6 +509,9 @@ void loop() {
     geozoneStatus = geozoneCheck(coordinates);
 
     lastHeight = altitude;
+    if(altitude > maxHeight ) {
+      maxHeight = altitude;
+    }
   }
 
   //failsafe logic and mode selection
